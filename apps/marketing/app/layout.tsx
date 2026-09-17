@@ -1,0 +1,30 @@
+import type { Metadata } from "next";
+import "./globals.css";
+import "./identity.css";
+import { AcquisitionTracker } from "@/components/acquisition-tracker";
+import { LanguageProvider } from "@/lib/i18n";
+
+
+export const metadata: Metadata = {
+  title: "Voysse — Source-available AI agents for your agency",
+  description: "Self-hosted platform to build and manage AI agents for your clients. FSL-1.1-MIT licensed.",
+  icons: { icon: "/brand/only-logo.png", apple: "/brand/only-logo.png" },
+};
+
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  return (
+    <html
+      suppressHydrationWarning
+      lang="en"
+      dir="ltr"
+      className="font-sans antialiased"
+    >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: "try{document.documentElement.classList.toggle('dark',localStorage.getItem('voysse.theme')==='dark')}catch{}" }} />
+      </head>
+      <body>
+        <LanguageProvider><AcquisitionTracker />{children}</LanguageProvider>
+      </body>
+    </html>
+  );
+}

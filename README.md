@@ -1,11 +1,153 @@
-<div align="center">
+<p align="center">
+  <img src="apps/web/public/brand/only-logo.png" width="96" alt="Voysse" />
+</p>
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+<h1 align="center">Voysse</h1>
 
-  <h1>Built with AI Studio</h2>
+<p align="center">
+  <strong>Source-available, white-label AI agents for agencies — WhatsApp, web chat and a workspace for every client.</strong>
+</p>
 
-  <p>The fastest path from prompt to production with Gemini.</p>
+<p align="center">
+  <a href="https://voysse.cl">Website</a> ·
+  <a href="https://docs.voysse.cl/docs">Documentation</a> ·
+  <a href="https://docs.voysse.cl/docs/getting-started">Quick start</a> ·
+  <a href="https://docs.voysse.cl/docs/self-hosting">Self-hosting</a> ·
+  <a href="https://cal.com/voysse/voysse-cloud">Cloud with Alex</a>
+</p>
 
-  <a href="https://aistudio.google.com/apps">Start building</a>
+<p align="center">
+  <a href="https://github.com/kanazawa-dev/voysse/actions/workflows/quality.yml"><img src="https://github.com/kanazawa-dev/voysse/actions/workflows/quality.yml/badge.svg?branch=main" alt="Quality checks" /></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-FSL--1.1--MIT-black" alt="FSL-1.1-MIT" /></a>
+  <img src="https://img.shields.io/badge/backend-FastAPI-009688" alt="FastAPI" />
+  <img src="https://img.shields.io/badge/frontend-Next.js-black" alt="Next.js" />
+  <img src="https://img.shields.io/badge/bridge-Baileys-25D366" alt="Baileys" />
+  <a href="./README.es.md"><img src="https://img.shields.io/badge/README-ES-yellow" alt="Español" /></a>
+</p>
 
-</div>
+---
+
+## What is Voysse?
+
+Voysse is a multi-tenant workspace where an agency creates AI agents for its clients, gives each client a branded portal, and talks to end users over WhatsApp or an embeddable web chat widget.
+
+Bring your own OpenAI / Anthropic keys and self-host the whole stack with one command.
+
+Some internal identifiers intentionally retain `openvoiss` for compatibility;
+see [Brand migration](./docs/brand-migration.md).
+
+## Choose your path
+
+- **Self-hosted:** run Voysse on your infrastructure with your own AI keys.
+- **Voysse Cloud:** [explore the managed option with Alex](https://cal.com/voysse/voysse-cloud).
+- **A specific project:** [talk directly with Alex](https://cal.com/voysse/hablemos-de-tu-proyecto).
+
+Source available under [FSL-1.1-MIT](./LICENSE). Review its terms before use.
+See the [implementation status](./docs/implementation-status.md) for delivered work and remaining validation.
+
+## Quick start
+
+```bash
+git clone https://github.com/kanazawa-dev/voysse.git
+cd voysse
+make setup
+make up
+```
+
+Then open `http://localhost` and create your first agency.
+
+See the [getting started guide](https://docs.voysse.cl/docs/getting-started) for the full walkthrough.
+
+## Features
+
+### Agents
+- Instructions, personality, per-client and per-agent context, timezone, plus temperature / max-tokens / memory controls
+- Multimodal: image recognition (vision) and audio transcription for incoming media
+- Creation wizard with live token counter and industry starter templates
+- [Learn more](https://docs.voysse.cl/docs/agents)
+
+### Knowledge base
+- Manual context, structured Q&A pairs and PDF upload
+- Embedding-based semantic retrieval with keyword fallback
+- Portable JSON embeddings — no database extension required
+- [Learn more](https://docs.voysse.cl/docs/knowledge-base)
+
+### AI providers
+- Bring-your-own OpenAI (Responses API) and Anthropic (Messages API) keys — agency-level, encrypted and validated when saved
+- Any model id your key can serve, including custom or fine-tuned ones (the API host itself is fixed per provider)
+- [Learn more](https://docs.voysse.cl/docs/ai-providers)
+
+### Custom tools
+- Per-agent HTTP tools: any REST endpoint with path / query / body parameters, encrypted auth headers and SSRF guard
+- MCP servers (Streamable HTTP or SSE) with test-before-save connection checks and cached tool discovery
+- Tool usage recorded per reply and surfaced in the playground, including failure details
+- [Learn more](https://docs.voysse.cl/docs/custom-tools)
+
+### Channels
+- **WhatsApp Cloud API** (official Meta API) — bring your own Meta app credentials, signed webhooks, per-client number
+- **WhatsApp QR** through Baileys — QR link, per-client number, encrypted persistent session
+- Embeddable **web chat widget** for any website
+- Instagram DM and Facebook Messenger — manual configuration and text pipeline implemented; guided OAuth, supported media and real-account validation remain in progress ([status](./docs/social-channels-setup.md))
+- [Learn more](https://docs.voysse.cl/docs/whatsapp)
+
+### Operations
+- Unified **Inbox** with server-side search, filter tabs, unread tracking, pagination and human takeover
+- Per-client **portal** with its own login and Inbox, optionally under the client's own custom domain (DNS-verified, automatic HTTPS)
+- **Dashboard** with activity, top agents, token usage by model and date-range filter
+- Agency **white-label** (name, identifier, color, logo)
+- [Learn more](https://docs.voysse.cl/docs/inbox)
+
+## Architecture
+
+Core application services, background workers, PostgreSQL and a Caddy gateway, orchestrated by Docker Compose. Marketing and documentation are separate apps.
+
+| App | Stack | Role |
+| --- | --- | --- |
+| `apps/api` | FastAPI · SQLAlchemy · Alembic | REST API, data model, AI / knowledge / provider services |
+| `apps/web` | Next.js · React · TypeScript · Tailwind | Agency dashboard, client portal, playground, widget |
+| `apps/whatsapp` | Node.js · Baileys | WhatsApp Web bridge (stateful sessions) |
+
+Application records live in PostgreSQL; uploaded files use persistent storage; provider keys and WhatsApp sessions are encrypted at rest. Every query is scoped by `agency_id` for tenant isolation, and public endpoints are rate-limited per client IP. A Caddy gateway serves the app and API from a single origin (`/api/*` → backend).
+
+[Read the architecture guide](https://docs.voysse.cl/docs/architecture)
+
+## Project structure
+
+```text
+apps/
+  api/         FastAPI backend (app/, migrations/, tests/)
+  web/         Next.js frontend (app/, components/, lib/, types/)
+  whatsapp/    Baileys WhatsApp bridge (src/)
+  marketing/   Public website and booking dialogs
+  docs/        Documentation website
+docs/          Self-hosting and operations guide
+scripts/       Helper scripts (generate-docker-env.sh)
+Makefile       Common commands (make help)
+docker-compose.yml
+```
+
+## Documentation
+
+Full documentation is available at [**docs.voysse.cl**](https://docs.voysse.cl/docs).
+
+| Guide | What it covers |
+| --- | --- |
+| [Getting started](https://docs.voysse.cl/docs/getting-started) | Run the stack with Docker and create your first agency |
+| [Configuration](https://docs.voysse.cl/docs/configuration) | Environment variables, secrets, ports and the gateway |
+| [Architecture](https://docs.voysse.cl/docs/architecture) | The services, the data model and tenant isolation |
+| [Self-hosting](https://docs.voysse.cl/docs/self-hosting) | Deploy to a server, back up, upgrade and troubleshoot |
+| [Contributing](https://docs.voysse.cl/docs/contributing) | Run the project locally, tests and conventions |
+| [Roadmap](https://docs.voysse.cl/docs/roadmap) | What the team wants to build next |
+| [Brand migration](./docs/brand-migration.md) | Voysse display name and intentionally retained legacy identifiers |
+
+## License
+
+Copyright © 2026 Voysse.
+
+Voysse is licensed under the [Functional Source License, Version 1.1, MIT Future License](./LICENSE) (FSL-1.1-MIT). See the license file for the full terms.
+
+## Community
+
+- [Talk with Alex](https://cal.com/voysse/hablemos-de-tu-proyecto) about your project
+- [Email Alex](mailto:alex@voysse.cl) for private questions; never post credentials in issues
+- [Issues](https://github.com/kanazawa-dev/voysse/issues) for bug reports and feature requests

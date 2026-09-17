@@ -1,0 +1,19 @@
+{
+  "title": "Voysse",
+  "pages": [
+    "index",
+    "getting-started",
+    "self-hosting",
+    "architecture",
+    "configuration",
+    "contributing",
+    "roadmap",
+    "---Features---",
+    "agents",
+    "knowledge-base",
+    "custom-tools",
+    "ai-providers",
+    "whatsapp",
+    "inbox"
+  ]
+}

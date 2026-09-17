@@ -1,0 +1,34 @@
+import type { Dictionary } from "./en";
+import { admin } from "./dicts/admin";
+import { alerts } from "./dicts/alerts";
+import { core } from "./dicts/core";
+import { home } from "./dicts/home";
+import { clients } from "./dicts/clients";
+import { agents } from "./dicts/agents";
+import { channels } from "./dicts/channels";
+import { settings } from "./dicts/settings";
+import { playground } from "./dicts/playground";
+import { portal } from "./dicts/portal";
+import { inbox } from "./dicts/inbox";
+import { tools } from "./dicts/tools";
+import { solutionPreview } from "./dicts/solution-preview";
+import { solutions } from "./dicts/solutions";
+
+// Spanish dictionary. Composed from the same modules; typed as Dictionary so it
+// must mirror the exact shape of `en` (each area's `es` mirrors its own `en`).
+export const es: Dictionary = {
+  ...core.es,
+  admin: admin.es,
+  alerts: alerts.es,
+  home: home.es,
+  clients: clients.es,
+  agents: agents.es,
+  channels: channels.es,
+  settings: settings.es,
+  playground: playground.es,
+  portal: portal.es,
+  inbox: inbox.es,
+  tools: tools.es,
+  solutions: solutions.es,
+  solutionPreview: solutionPreview.es,
+};

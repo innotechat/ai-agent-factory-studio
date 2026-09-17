@@ -1,0 +1,118 @@
+.workspace { display: grid; gap: 20px; min-width: 0; }
+.header { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.header h1 { font-size: clamp(1.5rem, 3vw, 2rem); margin: 4px 0; }
+.header p, .toolbar p { color: var(--muted-foreground); font-size: 13px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.graph { min-width: 0; border: 1px solid var(--border); background: var(--card); border-radius: 12px; overflow: hidden; }
+.toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.toolbar > p { flex: 1 1 220px; min-width: 0; margin: 0; }
+.zoom { display: flex; align-items: center; gap: 8px; font: 11px monospace; }
+.viewport { max-height: 590px; overflow: auto; background-image: radial-gradient(var(--border) 1px, transparent 1px); background-size: 20px 20px; }
+.viewport:focus-visible { outline: 2px solid var(--ring); outline-offset: -3px; }
+.map { width: 936px; position: relative; transform-origin: top left; }
+.edges { position: absolute; inset: 0; pointer-events: none; fill: none; stroke: var(--primary); stroke-width: 1.5; opacity: .6; }
+.nodeWrap { position: absolute; width: 260px; height: 88px; touch-action: none; }
+.node { width: 100%; height: 100%; padding: 16px 16px 16px 50px; display: flex; flex-direction: column; justify-content: center; text-align: left; background: var(--card); color: var(--foreground); border: 1px solid var(--border); border-radius: 8px; cursor: grab; touch-action: none; }
+.node:active { cursor: grabbing; }
+.node strong, .node small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.node strong { font-size: 14px; } .node small { font-size: 11px; color: var(--muted-foreground); margin-top: 6px; }
+.nodeIcon { position: absolute; left: 17px; top: 32px; color: var(--primary); }
+.node:hover, .node[aria-pressed="true"] { border-color: var(--primary); }
+.node:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+.connector { position: absolute; width: 16px; height: 16px; border-radius: 50%; background: var(--card); border: 2px solid var(--primary); cursor: crosshair; touch-action: none; z-index: 5; }
+.connector[data-side="right"] { right: -8px; top: 50%; margin-top: -8px; }
+.connector[data-side="left"] { left: -8px; top: 50%; margin-top: -8px; }
+.connector[data-side="top"] { left: 50%; top: -8px; margin-left: -8px; }
+.connector[data-side="bottom"] { left: 50%; bottom: -8px; margin-left: -8px; }
+.connector:hover, .connector:focus-visible { background: var(--primary); outline: none; transform: scale(1.2); }
+/* Touch/coarse-pointer devices have no hover, so keep handles always visible there
+   (that's the only way to discover them); real mice get the decluttered reveal-on-approach. */
+@media (hover: hover) and (pointer: fine) {
+  .connector { opacity: 0; transition: opacity .15s ease; }
+  .nodeWrap:hover .connector, .nodeWrap:focus-within .connector, .connector:focus-visible, .map[data-linking] .connector { opacity: 1; }
+}
+.linkPreview { stroke: var(--primary); stroke-width: 2; stroke-dasharray: 6 4; opacity: .8; }
+.panel { min-width: 0; padding: 24px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
+.panel h2 { margin-bottom: 12px; font-size: 18px; } .panel p { font-size: 13px; color: var(--muted-foreground); }
+@media (max-width: 640px) {
+  .zoom, .edges { display: none; }
+  .viewport { max-height: none; overflow: visible; padding: 16px; }
+  .extent, .map { width: auto !important; height: auto !important; transform: none !important; }
+  .column:empty { display: none; }
+  .column { display: grid; gap: 12px; margin-bottom: 20px; }
+  .nodeWrap { position: relative; left: auto !important; top: auto !important; width: 100%; height: auto; touch-action: auto; }
+  .node { cursor: default; touch-action: auto; }
+  .panel { padding: 16px; }
+}
+.editor { display: grid; gap: 20px; min-width: 0; align-items: start; }
+.form { display: grid; gap: 14px; min-width: 0; } .form label { display: grid; gap: 7px; font-size: 12px; }
+.form select { width: 100%; min-width: 0; height: 40px; padding: 8px; border: 1px solid var(--border); background: var(--card); color: var(--foreground); }
+.form .check { display: flex; align-items: center; gap: 8px; } .form input[type="color"] { width: 64px; height: 36px; }
+.widget { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; padding: 16px; background: var(--background); }
+.widget strong { display: block; border-bottom: 3px solid; padding-bottom: 12px; overflow-wrap: anywhere; }
+.widget p { background: var(--muted); border-radius: 12px; padding: 12px; margin: 12px 0; overflow-wrap: anywhere; }
+.preview { margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--border); }
+.transcript { max-height: 280px; overflow-y: auto; margin: 16px 0; } .transcript p { white-space: pre-wrap; overflow-wrap: anywhere; padding-block: 8px; }
+@media (min-width: 1200px) { .editor { grid-template-columns: minmax(0, 1fr) 340px; } .editor .panel { max-height: 760px; overflow: auto; } }
+.handoffFields { display: grid; gap: 16px; min-width: 0; margin-top: 16px; }
+.handoffFields label { display: grid; gap: 8px; font-size: 13px; }
+.handoffFields select { width: 100%; min-width: 0; padding: 8px; background: var(--card); color: var(--foreground); border: 1px solid var(--border); }
+.handoffRule { display: grid; gap: 12px; min-width: 0; border: 1px dashed var(--border); border-radius: 8px; padding: 16px; }
+.handoffRule legend { font-size: 12px; padding-inline: 8px; color: var(--muted-foreground); }
+.handoffPath { overflow-wrap: anywhere; }
+.handoffFields button { max-width: 100%; height: auto; min-height: 36px; white-space: normal; overflow-wrap: anywhere; }
+.execution { display: grid; gap: 16px; overflow-wrap: anywhere; }
+.execution button { max-width: 100%; height: auto; min-height: 36px; white-space: normal; }
+.execution summary { cursor: pointer; font-size: 13px; }
+.execution li { border-top: 1px solid var(--border); padding-block: 12px; }
+.execution summary:focus-visible, .execution form:focus-visible { outline: 2px solid var(--ring); outline-offset: 4px; }
+.policyCompare { display: grid; gap: 16px; min-width: 0; }
+.policyCompare > div { border: 1px solid var(--border); border-radius: 8px; padding: 12px; min-width: 0; }
+@media (min-width: 800px) { .policyCompare { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.layoutControls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.layoutControls span[role="status"] { font-size: 11px; color: var(--muted-foreground); white-space: nowrap; }
+.layoutControls p { width: 100%; font-size: 12px; color: var(--muted-foreground); }
+.layoutControls button { white-space: normal; height: auto; min-height: 32px; }
+@media (max-width: 640px) { .layoutControls { display: none; } }
+.clientPicker { padding: 16px; }
+.pickerFields { display: flex; flex-wrap: wrap; gap: 12px; }
+.pickerFields label { display: grid; gap: 6px; flex: 1 1 220px; min-width: 0; font-size: 12px; }
+.pickerFields select { height: 36px; width: 100%; min-width: 0; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--background); color: var(--foreground); }
+.immersive { height: 100dvh; width: 100%; display: flex; flex-direction: column; overflow: hidden; background: var(--background); }
+.canvasHeader { z-index: 20; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--card); }
+.canvasHeader > a { font-size: 14px; white-space: nowrap; }
+.canvasHeader > button { max-width: 240px; overflow: hidden; }
+.canvasActions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.canvasPicker { position: absolute; top: 64px; left: 12px; width: min(440px, calc(100% - 24px)); z-index: 40; box-shadow: 0 16px 40px #0003; }
+.canvasStage { position: relative; flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
+.canvasStage > .graph { position: absolute; inset: 0; border: 0; border-radius: 0; display: flex; flex-direction: column; }
+.canvasStage .viewport { flex: 1; max-height: none; min-height: 0; overflow: auto; scrollbar-width: none; touch-action: none; cursor: grab; padding: 0; }
+.canvasStage .viewport::-webkit-scrollbar { display: none; }
+.canvasStage .viewport:active { cursor: grabbing; }
+.canvasStage .toolbar { min-height: 48px; }
+.canvasStage .toolbar p { font-size: 11px; }
+.canvasTools { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; z-index: 15; padding: 6px; border-radius: 10px; background: var(--card); border: 1px solid var(--border); box-shadow: 0 8px 24px #0002; max-width: calc(100% - 16px); }
+.canvasTools button { font-size: 12px; white-space: normal; }
+.canvasDock { position: absolute; right: 12px; top: 60px; bottom: 80px; width: min(420px, calc(100% - 24px)); z-index: 20; display: flex; flex-direction: column; background: var(--card); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 16px 40px #0003; overflow: hidden; }
+.immersive [hidden] { display: none !important; }
+.dockHeader { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.dockBody { overflow: auto; min-height: 0; overscroll-behavior: contain; }
+.dockBody .panel { border: 0; border-radius: 0; padding: 16px; }
+.canvasError { position: absolute; left: 16px; bottom: 84px; max-width: min(480px, calc(100% - 32px)); background: var(--card); border: 1px solid var(--destructive); padding: 12px; z-index: 25; }
+@media (max-width: 640px) {
+  .canvasHeader { padding: 8px; gap: 6px; }
+  .canvasActions { width: 100%; justify-content: space-between; gap: 4px; }
+  .canvasActions button { font-size: 11px; }
+  .canvasStage .toolbar p { display: none; } .canvasStage .zoom { display: flex; }
+  .canvasStage .extent { width: var(--canvas-width) !important; height: var(--canvas-height) !important; }
+  .canvasStage .map { width: var(--map-width) !important; height: var(--map-height) !important; transform: scale(var(--map-zoom)) !important; }
+  .canvasStage .edges { display: block; }
+  .canvasStage .column { display: contents; } .canvasStage .column::before { display: none; }
+  .canvasStage .nodeWrap { position: absolute; width: 260px; height: 88px; left: var(--node-x) !important; top: var(--node-y) !important; }
+  .canvasDock { top: 56px; bottom: 80px; }
+  .canvasTools { width: calc(100% - 16px); display: grid; grid-template-columns: 1fr 1.6fr 1fr; }
+  .canvasTools button { min-width: 0; width: 100%; height: auto; min-height: 36px; padding: 6px; font-size: 10px; line-height: 1.2; white-space: normal; }
+}
+
+.handoffEdge { pointer-events: stroke; cursor: pointer; stroke-width: 3; }
+.handoffEdge:hover, .handoffEdge:focus { stroke-width: 5; outline: none; }

@@ -1,0 +1,36 @@
+// English dictionary (source of truth), composed from per-area modules under
+// ./dicts. `es.ts` mirrors this exact shape. Access with dotted paths, e.g.
+// t("nav.clients"), t("clients.list.title").
+import { admin } from "./dicts/admin";
+import { alerts } from "./dicts/alerts";
+import { core } from "./dicts/core";
+import { home } from "./dicts/home";
+import { clients } from "./dicts/clients";
+import { agents } from "./dicts/agents";
+import { channels } from "./dicts/channels";
+import { settings } from "./dicts/settings";
+import { playground } from "./dicts/playground";
+import { portal } from "./dicts/portal";
+import { inbox } from "./dicts/inbox";
+import { tools } from "./dicts/tools";
+import { solutionPreview } from "./dicts/solution-preview";
+import { solutions } from "./dicts/solutions";
+
+export const en = {
+  ...core.en,
+  admin: admin.en,
+  alerts: alerts.en,
+  home: home.en,
+  clients: clients.en,
+  agents: agents.en,
+  channels: channels.en,
+  settings: settings.en,
+  playground: playground.en,
+  portal: portal.en,
+  inbox: inbox.en,
+  tools: tools.en,
+  solutions: solutions.en,
+  solutionPreview: solutionPreview.en,
+};
+
+export type Dictionary = typeof en;

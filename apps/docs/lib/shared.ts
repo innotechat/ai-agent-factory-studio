@@ -1,0 +1,10 @@
+export const appName = 'Voysse';
+export const docsRoute = '/docs';
+export const docsImageRoute = '/og/docs';
+export const docsContentRoute = '/llms.mdx/docs';
+
+export const gitConfig = {
+  user: 'kanazawa-dev',
+  repo: 'voysse',
+  branch: 'main',
+};
