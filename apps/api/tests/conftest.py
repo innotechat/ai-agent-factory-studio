@@ -33,7 +33,17 @@ def override_get_db():
 
 
 @pytest.fixture(autouse=True)
-def clean_database():
+def clean_database(request):
+    if "nodb" in request.keywords:
+        yield
+        return
+    try:
+        with test_engine.connect() as conn:
+            pass
+    except Exception:
+        # PostgreSQL server not running in test container environment
+        yield
+        return
     Base.metadata.drop_all(test_engine)
     Base.metadata.create_all(test_engine)
     yield

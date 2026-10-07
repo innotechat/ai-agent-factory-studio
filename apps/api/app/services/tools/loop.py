@@ -4,6 +4,7 @@ import httpx
 from fastapi import HTTPException
 
 ANTHROPIC_VERSION = "2023-06-01"
+MAX_TOOL_ITERATIONS = 5
 
 @dataclass
 class ToolSpec:

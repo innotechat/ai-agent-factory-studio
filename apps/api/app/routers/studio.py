@@ -14,6 +14,7 @@ from ..deps import get_current_user
 from ..models import Agent, Client, SocialChannel, User, WhatsAppChannel, WhatsAppCloudChannel, now_utc
 from ..ratelimit import RateLimiter
 from ..services.ai import chat_completion
+from ..services.gateway import AIGateway, GatewayMessage
 from ..services.knowledge import build_system_prompt, retrieve_knowledge
 from ..services.providers import resolve_agent_credentials
 from ..services.usage import record_usage
@@ -142,11 +143,24 @@ async def preview(client_id: uuid.UUID, agent_id: uuid.UUID, payload: Preview,
     if not payload.message.strip():
         raise HTTPException(422, "Message is required")
     knowledge = await retrieve_knowledge(db, agent, payload.message)
-    # No tool runner, channel send, production history or persisted conversation.
-    messages = [{"role": "system", "content": build_system_prompt(agent, knowledge.text)},
-                *[turn.model_dump() for turn in payload.history], {"role": "user", "content": payload.message}]
-    completion = await chat_completion(agent.provider, *credentials, agent.model.strip(), messages,
-                                       temperature=agent.temperature, max_tokens=min(agent.max_tokens, 2048))
-    record_usage(db, agent.agency_id, agent.id, agent.provider, agent.model.strip(), completion)
+    # Routed through the canonical AI Gateway:
+    gateway = AIGateway(db)
+    system_prompt = build_system_prompt(agent, knowledge.text)
+    gateway_messages = [
+        GatewayMessage(role="system", content=system_prompt),
+        *[GatewayMessage(role=turn.role, content=turn.content) for turn in payload.history],
+        GatewayMessage(role="user", content=payload.message),
+    ]
+    completion = await gateway.complete(
+        agency_id=agent.agency_id,
+        user=user,
+        model=agent.model.strip(),
+        provider=agent.provider,
+        messages=gateway_messages,
+        temperature=agent.temperature,
+        max_tokens=min(agent.max_tokens, 2048),
+        allow_fallback=True,
+    )
+    record_usage(db, agent.agency_id, agent.id, completion.provider, completion.model, completion)
     db.commit()
     return {"text": completion.text, "sources": knowledge.sources, "tools_enabled": False}

@@ -1,0 +1,60 @@
+"""Canonical export package for the AI Gateway."""
+
+from .base_adapter import BaseProviderAdapter
+from .credential_resolver import CredentialResolver
+from .exceptions import (
+    CredentialResolutionError,
+    GatewayError,
+    ModelCapabilityMismatchError,
+    ModelNotFoundError,
+    ProviderDisabledError,
+    ProviderExecutionError,
+    ProviderNotFoundError,
+    RoutingError,
+    TenantSecurityError,
+)
+from .gateway import AIGateway
+from .model_registry import ModelRegistry, get_model_registry
+from .provider_registry import ProviderRegistry, get_provider_registry
+from .routing import RouteDecision, RoutingPolicy
+from .types import (
+    FinishReason,
+    GatewayMessage,
+    GatewayResponse,
+    GatewayUsage,
+    ModelCapability,
+    NormalizedToolCall,
+    RegisteredModel,
+    ResolvedCredential,
+    ToolDefinition,
+)
+
+__all__ = [
+    "AIGateway",
+    "BaseProviderAdapter",
+    "CredentialResolutionError",
+    "CredentialResolver",
+    "FinishReason",
+    "GatewayError",
+    "GatewayMessage",
+    "GatewayResponse",
+    "GatewayUsage",
+    "ModelCapability",
+    "ModelCapabilityMismatchError",
+    "ModelNotFoundError",
+    "ModelRegistry",
+    "NormalizedToolCall",
+    "ProviderDisabledError",
+    "ProviderExecutionError",
+    "ProviderNotFoundError",
+    "ProviderRegistry",
+    "RegisteredModel",
+    "ResolvedCredential",
+    "RouteDecision",
+    "RoutingError",
+    "RoutingPolicy",
+    "TenantSecurityError",
+    "ToolDefinition",
+    "get_model_registry",
+    "get_provider_registry",
+]
