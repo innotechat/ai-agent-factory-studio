@@ -25,8 +25,13 @@ import {
   Check,
   ChevronRight,
   ExternalLink,
-  Sparkles
+  Sparkles,
+  Plus,
+  FileCode2,
+  FileText
 } from 'lucide-react';
+import { TemplateSelectionScreen } from './components/TemplateSelectionScreen';
+import { BootstrappedAgentPayload } from './types/templates';
 
 interface Agent {
   id: string;
@@ -39,6 +44,10 @@ interface Agent {
   tools: string[];
   knowledgeDocs: number;
   monthlyTokens: number;
+  instructions?: string;
+  tone?: string;
+  guardrails?: string[];
+  templateOrigin?: string;
 }
 
 interface ProviderModel {
@@ -53,14 +62,15 @@ interface ProviderModel {
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'agents' | 'gateway' | 'credits' | 'api' | 'roadmap'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'agents' | 'templates' | 'gateway' | 'credits' | 'api' | 'roadmap'>('overview');
   const [tenantMode, setTenantMode] = useState<'agency' | 'direct' | 'reseller'>('agency');
   const [selectedAgent, setSelectedAgent] = useState<string>('agent-1');
   const [apiSimulating, setApiSimulating] = useState(false);
   const [apiResponse, setApiResponse] = useState<string | null>(null);
   const [testPrompt, setTestPrompt] = useState('Summarize the customer refund policy and propose an escalation workflow.');
+  const [toastMessage, setToastMessage] = useState<{ title: string; subtitle: string } | null>(null);
 
-  const agents: Agent[] = [
+  const [agents, setAgents] = useState<Agent[]>([
     {
       id: 'agent-1',
       name: 'InnoTech Support Dispatcher',
@@ -69,9 +79,17 @@ export default function App() {
       provider: 'gemini',
       status: 'active',
       channels: ['WhatsApp Cloud', 'Webchat Widget', 'Client Portal'],
-      tools: ['Knowledge Search', 'Ticket Escalation HTTP', 'CRM Lookup MCP'],
+      tools: ['Knowledge Base Semantic Search', 'Customer Context & Subscription Lookup', 'Escalate to Tier 2 Human Agent'],
       knowledgeDocs: 14,
       monthlyTokens: 482100,
+      templateOrigin: 'Customer Support & SLA Triage',
+      tone: 'Empathetic, efficient, concise, and solution-focused.',
+      guardrails: [
+        'Never invent refund promises or warranty claims not verified in knowledge base.',
+        'Always offer human escalation if sentiment drops or customer asks for a supervisor.',
+        'Redact PII before invoking external HTTP webhooks.'
+      ],
+      instructions: `You are the Tier 1 Support & SLA Triage Agent for InnoTech AI Agent Factory.\n\nYour mission is to deliver fast, accurate, and empathetic resolutions while adhering to company SLA guarantees.\n\n1. Identify inquiry type and query knowledge base first.\n2. Call customer context lookup tool for subscription status.\n3. Escalate immediately if customer sentiment becomes agitated.`,
     },
     {
       id: 'agent-2',
@@ -81,9 +99,16 @@ export default function App() {
       provider: 'openai',
       status: 'active',
       channels: ['WhatsApp QR (Baileys)', 'Webchat Widget'],
-      tools: ['Booking Calendar HTTP', 'Lead Qualification'],
+      tools: ['Lead Firmographic Enrichment', 'HubSpot / Salesforce Deal Creator', 'Calendar Availability Finder (Cal.com / GCal)'],
       knowledgeDocs: 8,
       monthlyTokens: 215400,
+      templateOrigin: 'Inbound SDR & Lead Qualification',
+      tone: 'Consultative, professional, engaging, persuasive, and curious.',
+      guardrails: [
+        'Do not quote custom enterprise pricing without executing the qualification checklist.',
+        'Preserve prospect contact confidentiality according to GDPR and SOC2 standards.'
+      ],
+      instructions: `You are the Inbound SDR & Lead Qualification Agent for InnoTech AI Agent Factory.\n\nQualify prospects based on BANT (Budget, Authority, Need, Timeline).\nOnce company domain is captured, enrich firmographics and offer calendar booking slots.`,
     },
     {
       id: 'agent-3',
@@ -92,12 +117,19 @@ export default function App() {
       model: 'claude-3-5-sonnet',
       provider: 'anthropic',
       status: 'active',
-      channels: ['Client Portal', 'API v1'],
-      tools: ['Database Read MCP', 'Document Summarizer'],
+      channels: ['Client Portal', 'REST API (/v1)'],
+      tools: ['Handbook & SOP Vector Knowledge Base', 'HRIS PTO & Leave Balance Checker', 'Prometheus / Datadog Metrics Snapshot'],
       knowledgeDocs: 32,
       monthlyTokens: 741000,
+      templateOrigin: 'Internal HR & Company Policy Guide',
+      tone: 'Helpful, respectful, discreet, and compliance-conscious.',
+      guardrails: [
+        'Do not disclose confidential executive compensation or private personnel records.',
+        'Always cite specific employee handbook chapters and revision dates.'
+      ],
+      instructions: `You are the Internal HR & Operations Guide for InnoTech AI Agent Factory.\n\nHelp employees navigate organizational policies, benefits, travel reimbursement, and onboarding steps.`,
     },
-  ];
+  ]);
 
   const models: ProviderModel[] = [
     { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', provider: 'Google Gemini', inputCostPer1M: 0.15, outputCostPer1M: 0.60, latencyMs: 240, health: 'healthy', contextWindow: '1M tokens' },
@@ -115,8 +147,8 @@ export default function App() {
         id: "chatcmpl-" + Math.random().toString(36).substring(2, 11),
         object: "chat.completion",
         created: Math.floor(Date.now() / 1000),
-        model: "innotech/gemini-2.5-flash",
-        provider_routed: "gemini",
+        model: `innotech/${currentAgent.model}`,
+        provider_routed: currentAgent.provider,
         tenant_id: "tenant-innotech-prod-01",
         credit_reservation: {
           reserved_units: 50,
@@ -128,25 +160,74 @@ export default function App() {
             index: 0,
             message: {
               role: "assistant",
-              content: "Refund Policy Summary:\n1. Standard refunds are processed within 14 calendar days of request.\n2. Digital license keys and consumed API credits are non-refundable once activated.\n3. Escalations require supervisor approval when exceeding $250.00.\n\nEscalation Proposal:\n• Ticket auto-routed to Tier 2 Lead\n• Ledger hold placed on transaction ID\n• Customer notified via WhatsApp and Webhook."
+              content: `[Executed via ${currentAgent.name}]\n\nWorkflow processed according to pre-filled template instructions.\nActive Tools: ${currentAgent.tools.join(', ')}\nTone: ${currentAgent.tone || 'Concise and helpful'}\n\nResolved query successfully within SLA limits.`
             },
             finish_reason: "stop"
           }
         ],
         usage: {
-          prompt_tokens: 64,
-          completion_tokens: 98,
-          total_tokens: 162,
-          estimated_cost_usd: 0.000068
+          prompt_tokens: 72,
+          completion_tokens: 104,
+          total_tokens: 176,
+          estimated_cost_usd: 0.000082
         }
       }, null, 2));
     }, 600);
+  };
+
+  const handleAgentBootstrapped = (payload: BootstrappedAgentPayload) => {
+    const newId = `agent-${Date.now().toString(36)}`;
+    const newAgent: Agent = {
+      id: newId,
+      name: payload.name,
+      role: payload.role,
+      model: payload.model,
+      provider: payload.provider,
+      status: 'active',
+      channels: payload.channels,
+      tools: payload.tools,
+      knowledgeDocs: 8,
+      monthlyTokens: 0,
+      instructions: payload.instructions,
+      tone: payload.tone,
+      guardrails: payload.guardrails,
+      templateOrigin: payload.templateOriginId,
+    };
+    setAgents(prev => [newAgent, ...prev]);
+    setSelectedAgent(newId);
+    setActiveTab('agents');
+    setToastMessage({
+      title: `Agent "${payload.name}" Bootstrapped`,
+      subtitle: `Pre-configured with ${payload.tools.length} execution tools and ${payload.channels.length} surface channels. Ready for runtime invocation.`
+    });
+    setTimeout(() => {
+      setToastMessage(null);
+    }, 6000);
   };
 
   const currentAgent = agents.find(a => a.id === selectedAgent) || agents[0];
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-5 right-5 z-50 bg-slate-900 text-white p-4 rounded-xl shadow-2xl border border-slate-700 flex items-start gap-3 max-w-md animate-in slide-in-from-bottom-3 duration-200">
+          <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
+            <CheckCircle2 className="w-4 h-4" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h4 className="text-xs font-bold text-white">{toastMessage.title}</h4>
+            <p className="text-[11px] text-slate-300 mt-0.5 leading-snug">{toastMessage.subtitle}</p>
+          </div>
+          <button
+            onClick={() => setToastMessage(null)}
+            className="text-slate-400 hover:text-white text-xs"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Top Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
@@ -219,6 +300,19 @@ export default function App() {
           >
             <Bot className="w-4 h-4" />
             Agent Runtime ({agents.length})
+          </button>
+          <button
+            id="tab-templates"
+            onClick={() => setActiveTab('templates')}
+            className={`flex items-center gap-2 py-3 px-3.5 border-b-2 text-xs font-medium transition-colors whitespace-nowrap ${
+              activeTab === 'templates'
+                ? 'border-slate-900 text-slate-900'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Sparkles className="w-4 h-4 text-amber-500" />
+            <span>Agent Templates</span>
+            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-600 font-semibold">8</span>
           </button>
           <button
             id="tab-gateway"
@@ -426,10 +520,21 @@ export default function App() {
         {activeTab === 'agents' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-1 space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-slate-900">Active Agents</h3>
-                <span className="text-xs text-slate-500 font-medium">{agents.length} configured</span>
+              <div className="flex items-center justify-between pb-1">
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900">Active Agents</h3>
+                  <span className="text-xs text-slate-500 font-medium">{agents.length} configured</span>
+                </div>
+                <button
+                  id="btn-bootstrap-agent"
+                  onClick={() => setActiveTab('templates')}
+                  className="px-2.5 py-1.5 text-xs font-semibold bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors flex items-center gap-1.5 shadow-2xs"
+                >
+                  <Plus className="w-3.5 h-3.5 text-amber-300" />
+                  <span>Bootstrap New</span>
+                </button>
               </div>
+
               {agents.map((agent) => (
                 <div
                   key={agent.id}
@@ -447,24 +552,55 @@ export default function App() {
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 mt-1">{agent.role}</p>
+                  
+                  {agent.templateOrigin && (
+                    <div className="mt-2 text-[10px] text-slate-400 font-mono">
+                      Blueprint: {agent.templateOrigin}
+                    </div>
+                  )}
+
                   <div className="mt-3 flex items-center gap-2 text-xs">
                     <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-[11px]">{agent.model}</span>
                     <span className="text-slate-400">·</span>
                     <span className="text-slate-500">{agent.channels.length} channels</span>
+                    <span className="text-slate-400">·</span>
+                    <span className="text-slate-500">{agent.tools.length} tools</span>
                   </div>
                 </div>
               ))}
+
+              {/* Quick Template promo banner */}
+              <div className="p-4 rounded-xl border border-dashed border-slate-300 bg-slate-50/70 text-center space-y-2">
+                <Sparkles className="w-4 h-4 text-amber-500 mx-auto" />
+                <div className="text-xs font-semibold text-slate-800">Need another agent?</div>
+                <p className="text-[11px] text-slate-500">
+                  Select from 8 production templates for Support, Sales, Operations, and Healthcare.
+                </p>
+                <button
+                  onClick={() => setActiveTab('templates')}
+                  className="text-xs font-semibold text-slate-900 hover:text-black underline mt-1 block w-full"
+                >
+                  Explore Template Blueprints →
+                </button>
+              </div>
             </div>
 
             <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-6">
-              <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+              <div className="flex items-start justify-between pb-4 border-b border-slate-100">
                 <div>
-                  <h3 className="text-base font-bold text-slate-900">{currentAgent.name}</h3>
-                  <p className="text-xs text-slate-500">{currentAgent.role}</p>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold text-slate-900">{currentAgent.name}</h3>
+                    {currentAgent.templateOrigin && (
+                      <span className="text-xs text-slate-500 font-medium">· from {currentAgent.templateOrigin}</span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">{currentAgent.role}</p>
                 </div>
-                <span className="text-xs font-medium px-2.5 py-1 rounded bg-blue-50 text-blue-700 border border-blue-200">
-                  ID: {currentAgent.id}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium px-2.5 py-1 rounded bg-blue-50 text-blue-700 border border-blue-200">
+                    ID: {currentAgent.id}
+                  </span>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -481,6 +617,45 @@ export default function App() {
                   <span className="text-xs font-semibold text-slate-800">{currentAgent.monthlyTokens.toLocaleString()} tokens</span>
                 </div>
               </div>
+
+              {/* System Instructions / Prompt */}
+              {currentAgent.instructions && (
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <h4 className="text-xs font-semibold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                      <FileCode2 className="w-3.5 h-3.5 text-slate-500" />
+                      Pre-filled System Instructions
+                    </h4>
+                    <span className="text-[10px] text-slate-400 font-mono">system_prompt</span>
+                  </div>
+                  <div className="p-3 bg-slate-950 text-slate-200 rounded-lg font-mono text-[11px] leading-relaxed max-h-40 overflow-y-auto whitespace-pre-wrap border border-slate-800">
+                    {currentAgent.instructions}
+                  </div>
+                </div>
+              )}
+
+              {/* Persona Tone & Guardrails */}
+              {(currentAgent.tone || (currentAgent.guardrails && currentAgent.guardrails.length > 0)) && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {currentAgent.tone && (
+                    <div className="p-3 rounded-lg bg-slate-50 border border-slate-100">
+                      <span className="text-[10px] uppercase font-semibold text-slate-500 block mb-1">Configured Persona & Tone</span>
+                      <p className="text-xs text-slate-700">{currentAgent.tone}</p>
+                    </div>
+                  )}
+
+                  {currentAgent.guardrails && currentAgent.guardrails.length > 0 && (
+                    <div className="p-3 rounded-lg bg-slate-50 border border-slate-100">
+                      <span className="text-[10px] uppercase font-semibold text-slate-500 block mb-1">Active Guardrails ({currentAgent.guardrails.length})</span>
+                      <ul className="space-y-1 text-[11px] text-slate-600">
+                        {currentAgent.guardrails.slice(0, 2).map((g, i) => (
+                          <li key={i} className="truncate">· {g}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div>
                 <h4 className="text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">Connected Channels</h4>
@@ -506,17 +681,31 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
-                <span className="text-xs text-slate-500">Security boundary: Tenant-isolated</span>
-                <button
-                  onClick={() => setActiveTab('api')}
-                  className="text-xs font-medium text-slate-800 hover:text-black flex items-center gap-1"
-                >
-                  Invoke via /v1 API <ChevronRight className="w-3.5 h-3.5" />
-                </button>
+              <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <span className="text-xs text-slate-500">Security boundary: Tenant-isolated · Verified sandbox</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      setTestPrompt(`Execute triage workflow for agent "${currentAgent.name}". Test tools: ${currentAgent.tools.slice(0, 2).join(', ')}.`);
+                      setActiveTab('api');
+                    }}
+                    className="text-xs font-semibold bg-slate-900 text-white px-3.5 py-1.5 rounded-lg hover:bg-slate-800 transition-colors flex items-center gap-1.5"
+                  >
+                    <Play className="w-3 h-3 text-emerald-400" />
+                    <span>Test in /v1 API</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
+        )}
+
+        {/* TAB: AGENT TEMPLATES & BLUEPRINTS */}
+        {activeTab === 'templates' && (
+          <TemplateSelectionScreen
+            onAgentBootstrapped={handleAgentBootstrapped}
+            onCancelToAgents={() => setActiveTab('agents')}
+          />
         )}
 
         {/* TAB 3: AI GATEWAY */}
