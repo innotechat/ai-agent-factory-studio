@@ -1,12 +1,32 @@
 """Provider Registry for managing and discovering AI provider adapters."""
 
 from typing import Iterable
+from ...config import get_settings
 from .base_adapter import BaseProviderAdapter
 from .exceptions import ProviderDisabledError, ProviderNotFoundError
 from .adapters.anthropic_adapter import AnthropicAdapter
 from .adapters.google_adapter import GoogleGeminiAdapter
 from .adapters.mock_adapter import MockProviderAdapter
 from .adapters.openai_adapter import OpenAIAdapter
+
+
+def is_mock_provider_allowed() -> bool:
+    """Return whether Mock provider execution is permitted under current environment configuration.
+    Policy:
+      - TEST: allowed
+      - STAGING: allowed only according to explicit allow_mock_provider config
+      - PRODUCTION / LIVE: disabled by default, requires explicit allow_mock_provider config
+      - DEVELOPMENT: allowed
+    """
+    settings = get_settings()
+    env = (settings.app_env or "development").strip().lower()
+    if env in ("test", "testing"):
+        return True
+    if env == "staging":
+        return bool(settings.allow_mock_provider)
+    if env in ("production", "live", "prod"):
+        return bool(settings.allow_mock_provider)
+    return True
 
 
 class ProviderRegistry:
@@ -26,7 +46,8 @@ class ProviderRegistry:
         self.register(OpenAIAdapter(), enabled=True)
         self.register(AnthropicAdapter(), enabled=True)
         self.register(GoogleGeminiAdapter(), enabled=True)
-        self.register(MockProviderAdapter(), enabled=True)
+        # Mock provider enabled according to strict environment policy
+        self.register(MockProviderAdapter(), enabled=is_mock_provider_allowed())
 
     def register(self, adapter: BaseProviderAdapter, enabled: bool = True) -> None:
         self._adapters[adapter.provider_id] = adapter

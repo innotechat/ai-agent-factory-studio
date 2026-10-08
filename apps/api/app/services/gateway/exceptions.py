@@ -30,6 +30,14 @@ class ModelCapabilityMismatchError(GatewayError):
         super().__init__(status_code=400, detail=f"Model '{model_id}' does not support required capability: {capability}.")
 
 
+class ProviderModelMismatchError(GatewayError):
+    def __init__(self, requested_provider: str, model_id: str, actual_provider: str):
+        super().__init__(
+            status_code=400,
+            detail=f"Provider mismatch: requested provider '{requested_provider}' cannot serve model '{model_id}' (bound to provider '{actual_provider}').",
+        )
+
+
 class CredentialResolutionError(GatewayError):
     def __init__(self, provider_id: str, reason: str = "No valid credential found"):
         super().__init__(status_code=400, detail=f"Credential resolution failed for provider '{provider_id}': {reason}")

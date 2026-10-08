@@ -86,11 +86,11 @@ class AIGateway:
                 tools=tools,
                 **kwargs,
             )
-        except (ProviderExecutionError, GatewayError) as primary_exc:
-            # 2. Policy-controlled fallback (if primary failed and eligible fallback exists)
+        except ProviderExecutionError as primary_exc:
+            # 2. Policy-controlled fallback (ONLY if primary failed due to genuine provider execution failure)
             if allow_fallback and decision.fallback_provider and decision.fallback_model:
                 logger.warning(
-                    "Primary provider/model %s/%s failed (%s). Executing policy fallback to %s/%s",
+                    "Primary provider/model %s/%s failed with provider execution error (%s). Executing policy fallback to %s/%s",
                     decision.primary_provider,
                     decision.primary_model,
                     primary_exc.detail,

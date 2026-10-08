@@ -1,4 +1,9 @@
-"""Centralized Model Registry for the AI Gateway."""
+"""Centralized Model Registry for the AI Gateway.
+
+Note: Pricing metadata (input_price_per_1k, output_price_per_1k) is configuration
+metadata used for client-facing informational display/estimation only. It is NOT
+a Phase-3 billing ledger, subscription meter, or credit accounting system.
+"""
 
 from typing import Iterable
 from .exceptions import ModelNotFoundError

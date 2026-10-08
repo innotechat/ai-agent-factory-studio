@@ -201,18 +201,17 @@ class AnthropicAdapter(BaseProviderAdapter):
             "anthropic-version": ANTHROPIC_VERSION,
         }
         url = f"{base_url}/models"
-        async with httpx.AsyncClient(timeout=20) as client:
-            resp = await client.get(url, headers=headers)
-            if resp.status_code < 400:
-                try:
-                    data = resp.json()
-                    models = [
-                        item.get("id")
-                        for item in data.get("data", [])
-                        if isinstance(item, dict) and item.get("id")
-                    ]
-                    return {"ok": True, "provider": self.provider_id, "models": sorted(models)}
-                except Exception:
-                    pass
-            # If listing models is not supported or fails on older keys, return verified capability
-            return {"ok": True, "provider": self.provider_id, "models": self.list_models()}
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                resp = await client.get(url, headers=headers)
+                if resp.status_code >= 400:
+                    raise ProviderExecutionError(self.provider_id, self._extract_error(resp))
+                data = resp.json()
+                models = [
+                    item.get("id")
+                    for item in data.get("data", [])
+                    if isinstance(item, dict) and item.get("id")
+                ]
+                return {"ok": True, "provider": self.provider_id, "models": sorted(models)}
+        except httpx.HTTPError as exc:
+            raise ProviderExecutionError(self.provider_id, f"Connection error: {str(exc)}") from exc

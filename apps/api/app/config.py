@@ -59,6 +59,10 @@ class Settings(BaseSettings):
     # One Meta app per installation. Never expose these through the client API.
     meta_social_app_secret: str = ""
     meta_social_verify_token: str = ""
+    # Environment mode: "test", "development", "staging", "production".
+    # Mock provider adapter execution is forbidden in production unless explicitly allowed.
+    app_env: Literal["test", "development", "staging", "production"] = "development"
+    allow_mock_provider: bool = False
 
     model_config = SettingsConfigDict(
         env_file=(REPO_ROOT / ".env", APP_DIR / ".env"),

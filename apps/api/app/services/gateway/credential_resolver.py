@@ -18,7 +18,8 @@ from sqlalchemy.orm import Session
 
 from...models import ProviderCredential, User
 from...security import decrypt_secret
-from .exceptions import CredentialResolutionError, TenantSecurityError
+from .exceptions import CredentialResolutionError, ProviderDisabledError, TenantSecurityError
+from .provider_registry import is_mock_provider_allowed
 from .types import ResolvedCredential
 
 
@@ -49,8 +50,10 @@ class CredentialResolver:
         if user is not None and user.agency_id != parsed_agency_id:
             raise TenantSecurityError("Principal agency does not match requested tenant context")
 
-        # Mock provider bypass strictly for test environments
+        # Mock provider bypass strictly for permitted test environments
         if provider_id == "mock":
+            if not is_mock_provider_allowed():
+                raise ProviderDisabledError("mock")
             return ResolvedCredential(
                 provider_id="mock",
                 api_key="mock-test-key-safe",

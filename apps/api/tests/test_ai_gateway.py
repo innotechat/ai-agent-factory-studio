@@ -5,8 +5,10 @@ from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 
+from app.config import Settings
 from app.services.gateway import (
     AIGateway,
     CredentialResolutionError,
@@ -22,6 +24,8 @@ from app.services.gateway import (
     ModelRegistry,
     NormalizedToolCall,
     ProviderDisabledError,
+    ProviderExecutionError,
+    ProviderModelMismatchError,
     ProviderNotFoundError,
     ProviderRegistry,
     RegisteredModel,
@@ -34,7 +38,7 @@ from app.services.gateway import (
     get_provider_registry,
 )
 from app.services.gateway.adapters.anthropic_adapter import AnthropicAdapter
-from app.services.gateway.adapters.google_adapter import GoogleGeminiAdapter
+from app.services.gateway.adapters.google_adapter import GoogleGeminiAdapter, redact_secrets
 from app.services.gateway.adapters.mock_adapter import MockProviderAdapter
 from app.services.gateway.adapters.openai_adapter import OpenAIAdapter
 
@@ -116,24 +120,46 @@ def test_model_registry_filtering():
 
 
 # ==========================================
-# 3. Routing Policy Tests
+# 3. Provider <-> Model Binding Tests (Requirement 2)
 # ==========================================
 
-def test_routing_policy_deterministic_selection():
+def test_provider_model_binding_valid_combination():
     routing = RoutingPolicy()
-    decision = routing.resolve_route("gpt-5.6-luna")
+    decision = routing.resolve_route("gpt-5.6-luna", requested_provider="openai")
     assert decision.primary_provider == "openai"
     assert decision.primary_model == "gpt-5.6-luna"
-    assert decision.requires_tools is False
 
-    gemini_decision = routing.resolve_route("gemini-3.6-flash")
+    gemini_decision = routing.resolve_route("gemini-3.6-flash", requested_provider="google")
     assert gemini_decision.primary_provider == "google"
-    assert gemini_decision.primary_model == "gemini-3.6-flash"
+
+    claude_decision = routing.resolve_route("claude-opus-4-7", requested_provider="anthropic")
+    assert claude_decision.primary_provider == "anthropic"
+
+
+def test_provider_model_binding_mismatches_rejected():
+    routing = RoutingPolicy()
+
+    # gpt model + anthropic provider -> reject
+    with pytest.raises(ProviderModelMismatchError) as exc_info:
+        routing.resolve_route("gpt-5.6-luna", requested_provider="anthropic")
+    assert "Provider mismatch" in exc_info.value.detail
+    assert "anthropic" in exc_info.value.detail
+
+    # gemini model + openai provider -> reject
+    with pytest.raises(ProviderModelMismatchError) as exc_info:
+        routing.resolve_route("gemini-3.6-flash", requested_provider="openai")
+    assert "Provider mismatch" in exc_info.value.detail
+    assert "openai" in exc_info.value.detail
+
+    # claude model + google provider -> reject
+    with pytest.raises(ProviderModelMismatchError) as exc_info:
+        routing.resolve_route("claude-opus-4-7", requested_provider="google")
+    assert "Provider mismatch" in exc_info.value.detail
+    assert "google" in exc_info.value.detail
 
 
 def test_routing_policy_capability_validation():
     reg = ModelRegistry()
-    # Register a model without tools support
     no_tool_model = RegisteredModel(
         model_id="no-tools-model",
         provider_id="mock",
@@ -165,19 +191,50 @@ def test_routing_policy_deterministic_fallback():
 
 
 # ==========================================
-# 4. Credential Resolver Tests (Mock DB / Isolation)
+# 4. Mock Provider Environment Safety Tests (Requirement 3)
 # ==========================================
 
-class FakeQuery:
-    def __init__(self, result=None):
-        self._result = result
+def test_mock_provider_environment_guard_production_rejected():
+    prod_settings = Settings(app_env="production", allow_mock_provider=False)
+    with patch("app.services.gateway.provider_registry.get_settings", return_value=prod_settings):
+        # Provider registry must register mock as disabled
+        reg = ProviderRegistry()
+        assert not reg.is_enabled("mock")
+        with pytest.raises(ProviderDisabledError):
+            reg.require_adapter("mock")
 
-    def filter(self, *args, **kwargs):
-        return self
+        # Credential resolver must also reject mock
+        db = FakeDBSession()
+        resolver = CredentialResolver(db)
+        with pytest.raises(ProviderDisabledError):
+            resolver.resolve("mock", uuid.uuid4())
 
-    def first(self):
-        return self._result
 
+def test_mock_provider_environment_guard_staging_policy():
+    # Staging with allow_mock_provider=False
+    staging_no_mock = Settings(app_env="staging", allow_mock_provider=False)
+    with patch("app.services.gateway.provider_registry.get_settings", return_value=staging_no_mock):
+        reg = ProviderRegistry()
+        assert not reg.is_enabled("mock")
+
+    # Staging with allow_mock_provider=True
+    staging_with_mock = Settings(app_env="staging", allow_mock_provider=True)
+    with patch("app.services.gateway.provider_registry.get_settings", return_value=staging_with_mock):
+        reg = ProviderRegistry()
+        assert reg.is_enabled("mock")
+
+
+def test_mock_provider_environment_guard_test_allowed():
+    test_settings = Settings(app_env="test", allow_mock_provider=False)
+    with patch("app.services.gateway.provider_registry.get_settings", return_value=test_settings):
+        reg = ProviderRegistry()
+        assert reg.is_enabled("mock")
+        assert reg.require_adapter("mock") is not None
+
+
+# ==========================================
+# 5. Credential Resolver & Tenant Boundary Tests (Requirement 1)
+# ==========================================
 
 class FakeDBSession:
     def __init__(self, cred_row=None):
@@ -187,26 +244,17 @@ class FakeDBSession:
         return self.cred_row
 
 
-def test_credential_resolver_mock_provider():
+def test_credential_resolver_cross_tenant_access_rejected():
     db = FakeDBSession()
     resolver = CredentialResolver(db)
-    agency_id = uuid.uuid4()
-    resolved = resolver.resolve("mock", agency_id)
-    assert resolved.provider_id == "mock"
-    assert resolved.source == "mock"
-    assert resolved.base_url == "http://mock-provider.local"
-    # Never expose frontend or insecure credentials
+    tenant_a = uuid.uuid4()
+    tenant_b = uuid.uuid4()
+    user_tenant_a = SimpleNamespace(agency_id=tenant_a)
 
-
-def test_credential_resolver_tenant_isolation_mismatch():
-    db = FakeDBSession()
-    resolver = CredentialResolver(db)
-    agency_1 = uuid.uuid4()
-    agency_2 = uuid.uuid4()
-    user = SimpleNamespace(agency_id=agency_1)
-
-    with pytest.raises(TenantSecurityError):
-        resolver.resolve("mock", agency_2, user=user)
+    # Attempting to access tenant_b's credential with user belonging to tenant_a must raise TenantSecurityError
+    with pytest.raises(TenantSecurityError) as exc_info:
+        resolver.resolve("openai", tenant_b, user=user_tenant_a)
+    assert "Principal agency does not match requested tenant context" in exc_info.value.detail
 
 
 def test_credential_resolver_missing_credential_raises():
@@ -220,11 +268,11 @@ def test_credential_resolver_missing_credential_raises():
 
 
 # ==========================================
-# 5. Gateway End-to-End Execution Flow Tests
+# 6. Fallback Semantics Tests (Requirement 7)
 # ==========================================
 
 @pytest.mark.asyncio
-async def test_gateway_flow_principal_tenant_routing_adapter():
+async def test_gateway_no_fallback_on_tenant_security_error():
     db = FakeDBSession()
     mock_adapter = MockProviderAdapter()
     provider_reg = ProviderRegistry([mock_adapter])
@@ -236,29 +284,44 @@ async def test_gateway_flow_principal_tenant_routing_adapter():
         model_registry=model_reg,
     )
 
-    agency_id = uuid.uuid4()
-    user = SimpleNamespace(agency_id=agency_id)
-    messages = [GatewayMessage(role="user", content="Hello InnoTech")]
+    tenant_1 = uuid.uuid4()
+    tenant_2 = uuid.uuid4()
+    user_1 = SimpleNamespace(agency_id=tenant_1)
+    messages = [GatewayMessage(role="user", content="Hi")]
 
-    response = await gateway.complete(
-        agency_id=agency_id,
-        user=user,
-        model="mock-fast",
-        messages=messages,
-    )
-
-    assert isinstance(response, GatewayResponse)
-    assert response.provider == "mock"
-    assert response.model == "mock-fast"
-    assert response.finish_reason == FinishReason.STOP
-    assert "Mock reply to: Hello InnoTech" in response.text
-    assert response.usage.input_tokens == 15
-    assert response.usage.output_tokens == 25
-    assert response.usage.total_tokens == 40
+    # Cross-tenant violation must raise TenantSecurityError immediately without falling back
+    with pytest.raises(TenantSecurityError):
+        await gateway.complete(
+            agency_id=tenant_2,
+            user=user_1,
+            model="mock-fast",
+            messages=messages,
+            allow_fallback=True,
+        )
 
 
 @pytest.mark.asyncio
-async def test_gateway_fallback_on_primary_failure():
+async def test_gateway_no_fallback_on_provider_model_mismatch():
+    db = FakeDBSession()
+    gateway = AIGateway(db=db)
+    tenant = uuid.uuid4()
+    user = SimpleNamespace(agency_id=tenant)
+    messages = [GatewayMessage(role="user", content="Hi")]
+
+    # Mismatch between requested provider and model must fail fast without fallback
+    with pytest.raises(ProviderModelMismatchError):
+        await gateway.complete(
+            agency_id=tenant,
+            user=user,
+            model="gpt-5.6-luna",
+            provider="anthropic",
+            messages=messages,
+            allow_fallback=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_gateway_fallback_on_genuine_provider_execution_failure():
     db = FakeDBSession()
     mock_adapter = MockProviderAdapter()
     mock_adapter.should_fail = True  # force primary to fail
@@ -274,10 +337,9 @@ async def test_gateway_fallback_on_primary_failure():
 
     agency_id = uuid.uuid4()
     user = SimpleNamespace(agency_id=agency_id)
-    messages = [GatewayMessage(role="user", content="Hello InnoTech")]
+    messages = [GatewayMessage(role="user", content="Hello")]
 
-    # If mock_adapter fails for all calls, it raises ProviderExecutionError
-    with pytest.raises(GatewayError):
+    with pytest.raises(ProviderExecutionError):
         await gateway.complete(
             agency_id=agency_id,
             user=user,
@@ -288,7 +350,145 @@ async def test_gateway_fallback_on_primary_failure():
 
 
 # ==========================================
-# 6. Usage Normalization Fixtures Tests
+# 7. Secret Redaction Tests (Requirement 5)
+# ==========================================
+
+def test_secret_redaction_utility():
+    secret_key = "AIzaSySecretApiKey123456"
+    test_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={secret_key}"
+
+    redacted = redact_secrets(test_url, secret_key)
+    assert secret_key not in redacted
+    assert "[REDACTED" in redacted
+
+    error_msg = f"HTTP 403 request failed for {test_url} with key={secret_key}"
+    redacted_error = redact_secrets(error_msg, secret_key)
+    assert secret_key not in redacted_error
+
+
+@pytest.mark.asyncio
+async def test_google_adapter_error_redacts_credentials():
+    adapter = GoogleGeminiAdapter()
+    secret_key = "AIzaSyVerySecretKey999"
+    cred = ResolvedCredential(
+        provider_id="google",
+        api_key=secret_key,
+        base_url="https://generativelanguage.googleapis.com/v1beta",
+        source="agency_byok",
+    )
+
+    # Simulate HTTP 403 response containing URL with key
+    mock_response = httpx.Response(
+        status_code=403,
+        json={"error": {"message": f"API key {secret_key} invalid on URL ?key={secret_key}"}},
+        request=httpx.Request("GET", f"https://mock.url?key={secret_key}"),
+    )
+
+    with patch("httpx.AsyncClient.get", return_value=mock_response):
+        with pytest.raises(ProviderExecutionError) as exc_info:
+            await adapter.test_connection(cred)
+
+        assert secret_key not in exc_info.value.detail
+        assert "[REDACTED" in exc_info.value.detail
+
+
+# ==========================================
+# 8. Provider Connection Verification Tests (Requirement 6)
+# ==========================================
+
+@pytest.mark.asyncio
+async def test_openai_test_connection_success_and_failure():
+    adapter = OpenAIAdapter()
+    cred = ResolvedCredential("openai", "sk-test", "https://api.openai.com/v1", "agency_byok")
+
+    # 1. Success case
+    success_resp = httpx.Response(
+        200,
+        json={"data": [{"id": "gpt-5.6-luna"}, {"id": "gpt-5.6-terra"}]},
+        request=httpx.Request("GET", "https://api.openai.com/v1/models"),
+    )
+    with patch("httpx.AsyncClient.get", return_value=success_resp):
+        res = await adapter.test_connection(cred)
+        assert res["ok"] is True
+        assert "gpt-5.6-luna" in res["models"]
+
+    # 2. HTTP 401 error case -> must raise ProviderExecutionError
+    fail_resp = httpx.Response(
+        401,
+        json={"error": {"message": "Incorrect API key provided"}},
+        request=httpx.Request("GET", "https://api.openai.com/v1/models"),
+    )
+    with patch("httpx.AsyncClient.get", return_value=fail_resp):
+        with pytest.raises(ProviderExecutionError):
+            await adapter.test_connection(cred)
+
+    # 3. Network error -> must raise ProviderExecutionError
+    with patch("httpx.AsyncClient.get", side_effect=httpx.ConnectError("Network unreachable")):
+        with pytest.raises(ProviderExecutionError):
+            await adapter.test_connection(cred)
+
+
+@pytest.mark.asyncio
+async def test_anthropic_test_connection_success_and_failure():
+    adapter = AnthropicAdapter()
+    cred = ResolvedCredential("anthropic", "sk-ant-test", "https://api.anthropic.com/v1", "agency_byok")
+
+    # 1. Success case
+    success_resp = httpx.Response(
+        200,
+        json={"data": [{"id": "claude-opus-4-7"}, {"id": "claude-sonnet-4-6"}]},
+        request=httpx.Request("GET", "https://api.anthropic.com/v1/models"),
+    )
+    with patch("httpx.AsyncClient.get", return_value=success_resp):
+        res = await adapter.test_connection(cred)
+        assert res["ok"] is True
+        assert "claude-opus-4-7" in res["models"]
+
+    # 2. HTTP 401 error case -> must raise ProviderExecutionError, never return ok: True!
+    fail_resp = httpx.Response(
+        401,
+        json={"error": {"message": "Invalid x-api-key"}},
+        request=httpx.Request("GET", "https://api.anthropic.com/v1/models"),
+    )
+    with patch("httpx.AsyncClient.get", return_value=fail_resp):
+        with pytest.raises(ProviderExecutionError):
+            await adapter.test_connection(cred)
+
+    # 3. Network error -> must raise ProviderExecutionError
+    with patch("httpx.AsyncClient.get", side_effect=httpx.ConnectTimeout("Timed out")):
+        with pytest.raises(ProviderExecutionError):
+            await adapter.test_connection(cred)
+
+
+@pytest.mark.asyncio
+async def test_google_test_connection_success_and_failure():
+    adapter = GoogleGeminiAdapter()
+    cred = ResolvedCredential("google", "ai-key", "https://generativelanguage.googleapis.com/v1beta", "agency_byok")
+
+    # 1. Success case
+    success_resp = httpx.Response(
+        200,
+        json={"models": [{"name": "models/gemini-3.6-flash"}, {"name": "models/gemini-3.5-flash"}]},
+        request=httpx.Request("GET", "https://generativelanguage.googleapis.com/v1beta/models"),
+    )
+    with patch("httpx.AsyncClient.get", return_value=success_resp):
+        res = await adapter.test_connection(cred)
+        assert res["ok"] is True
+        assert "gemini-3.6-flash" in res["models"]
+
+    # 2. Failure case (400 / 403) -> must raise ProviderExecutionError
+    fail_resp = httpx.Response(
+        400,
+        json={"error": {"message": "API key not valid"}},
+        request=httpx.Request("GET", "https://generativelanguage.googleapis.com/v1beta/models"),
+    )
+    with patch("httpx.AsyncClient.get", return_value=fail_resp):
+        with pytest.raises(ProviderExecutionError):
+            await adapter.test_connection(cred)
+
+
+# ==========================================
+# 9. Response Normalization Tests
 # ==========================================
 
 def test_openai_response_normalization():

@@ -9,7 +9,7 @@ Determines:
 from dataclasses import dataclass
 from typing import Any
 
-from .exceptions import ModelCapabilityMismatchError, RoutingError
+from .exceptions import ModelCapabilityMismatchError, ProviderModelMismatchError, RoutingError
 from .model_registry import ModelRegistry, get_model_registry
 from .types import RegisteredModel
 
@@ -45,7 +45,19 @@ class RoutingPolicy:
         if not model_info:
             raise RoutingError(f"Requested model '{requested_model}' not found in registry.")
 
-        provider = requested_provider or model_info.provider_id
+        # Strict Provider <-> Model Binding validation
+        if requested_provider:
+            req_prov = requested_provider.strip().lower()
+            actual_prov = model_info.provider_id.strip().lower()
+            if req_prov != actual_prov:
+                raise ProviderModelMismatchError(
+                    requested_provider=requested_provider,
+                    model_id=model_info.model_id,
+                    actual_provider=model_info.provider_id,
+                )
+            provider = model_info.provider_id
+        else:
+            provider = model_info.provider_id
 
         # Capability validation
         if requires_tools and not model_info.capabilities.supports_tools:
