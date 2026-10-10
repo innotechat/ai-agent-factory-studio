@@ -13,18 +13,19 @@ from .adapters.openai_adapter import OpenAIAdapter
 def is_mock_provider_allowed() -> bool:
     """Return whether Mock provider execution is permitted under current environment configuration.
     Policy:
-      - TEST: allowed
+      - PRODUCTION / LIVE: STRICTLY FORBIDDEN under all circumstances (even if allow_mock_provider is accidentally set to True)
       - STAGING: allowed only according to explicit allow_mock_provider config
-      - PRODUCTION / LIVE: disabled by default, requires explicit allow_mock_provider config
+      - TEST / TESTING: allowed
       - DEVELOPMENT: allowed
     """
     settings = get_settings()
     env = (settings.app_env or "development").strip().lower()
+    # Absolute production barrier: Never allow mock provider in production or live environments
+    if env in ("production", "live", "prod"):
+        return False
     if env in ("test", "testing"):
         return True
     if env == "staging":
-        return bool(settings.allow_mock_provider)
-    if env in ("production", "live", "prod"):
         return bool(settings.allow_mock_provider)
     return True
 

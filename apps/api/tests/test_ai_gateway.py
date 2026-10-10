@@ -18,8 +18,10 @@ from app.services.gateway import (
     GatewayMessage,
     GatewayResponse,
     GatewayUsage,
+    InvalidBaseUrlError,
     ModelCapability,
     ModelCapabilityMismatchError,
+    ModelInactiveError,
     ModelNotFoundError,
     ModelRegistry,
     NormalizedToolCall,
@@ -31,6 +33,7 @@ from app.services.gateway import (
     RegisteredModel,
     ResolvedCredential,
     RouteDecision,
+    RoutingError,
     RoutingPolicy,
     TenantSecurityError,
     ToolDefinition,
@@ -204,6 +207,21 @@ def test_mock_provider_environment_guard_production_rejected():
             reg.require_adapter("mock")
 
         # Credential resolver must also reject mock
+        db = FakeDBSession()
+        resolver = CredentialResolver(db)
+        with pytest.raises(ProviderDisabledError):
+            resolver.resolve("mock", uuid.uuid4())
+
+
+def test_mock_provider_environment_guard_production_accidentally_enabled_still_rejected():
+    # Production must reject Mock execution EVEN IF allow_mock_provider is accidentally True
+    prod_accidental = Settings(app_env="production", allow_mock_provider=True)
+    with patch("app.services.gateway.provider_registry.get_settings", return_value=prod_accidental):
+        reg = ProviderRegistry()
+        assert not reg.is_enabled("mock")
+        with pytest.raises(ProviderDisabledError):
+            reg.require_adapter("mock")
+
         db = FakeDBSession()
         resolver = CredentialResolver(db)
         with pytest.raises(ProviderDisabledError):
@@ -576,3 +594,149 @@ def test_google_gemini_response_normalization():
     assert normalized.usage.output_tokens == 65
     assert normalized.usage.total_tokens == 275
     assert normalized.finish_reason == FinishReason.STOP
+
+
+# ==========================================
+# 10. Phase 2 Corrections Regression Tests
+# ==========================================
+
+def test_credential_resolver_url_validation_strict_https():
+    db = FakeDBSession()
+    resolver = CredentialResolver(db)
+
+    # Valid HTTPS allowed
+    valid = resolver._resolve_safe_base_url("openai", "sk-test", "https://api.openai.com/v1")
+    assert valid == "https://api.openai.com/v1"
+
+    # Valid openrouter override
+    valid_or = resolver._resolve_safe_base_url("openai", "sk-test", "https://openrouter.ai/api/v1")
+    assert valid_or == "https://openrouter.ai/api/v1"
+
+
+def test_credential_resolver_rejects_malicious_url_overrides():
+    db = FakeDBSession()
+    resolver = CredentialResolver(db)
+
+    # 1. Plain HTTP for cloud providers
+    with pytest.raises(InvalidBaseUrlError) as exc:
+        resolver._resolve_safe_base_url("openai", "sk-test", "http://api.openai.com/v1")
+    assert "HTTPS required" in exc.value.detail
+
+    # 2. Hostname substring spoofing (e.g. evil-api.openai.com or api.openai.com.attacker.com)
+    with pytest.raises(InvalidBaseUrlError) as exc:
+        resolver._resolve_safe_base_url("openai", "sk-test", "https://api.openai.com.attacker.com/v1")
+    assert "not in the trusted host whitelist" in exc.value.detail
+
+    with pytest.raises(InvalidBaseUrlError) as exc:
+        resolver._resolve_safe_base_url("openai", "sk-test", "https://attacker-api.openai.com/v1")
+    assert "not in the trusted host whitelist" in exc.value.detail
+
+    # 3. Userinfo in URL
+    with pytest.raises(InvalidBaseUrlError) as exc:
+        resolver._resolve_safe_base_url("openai", "sk-test", "https://user:password@api.openai.com/v1")
+    assert "user credentials" in exc.value.detail
+
+    # 4. Non-standard ports (e.g. SSRF port scanning)
+    with pytest.raises(InvalidBaseUrlError) as exc:
+        resolver._resolve_safe_base_url("openai", "sk-test", "https://api.openai.com:8080/v1")
+    assert "explicit ports" in exc.value.detail
+
+    # 5. Untrusted completely foreign domain
+    with pytest.raises(InvalidBaseUrlError) as exc:
+        resolver._resolve_safe_base_url("openai", "sk-test", "https://evil-server.example.com/v1")
+    assert "not in the trusted host whitelist" in exc.value.detail
+
+
+def test_routing_policy_rejects_inactive_models():
+    reg = ModelRegistry()
+    inactive_model = RegisteredModel(
+        model_id="decommissioned-model-1",
+        provider_id="openai",
+        display_name="Decommissioned Model",
+        family="gpt-old",
+        context_window=10_000,
+        max_output_tokens=1_000,
+        capabilities=ModelCapability(),
+        active=False,
+    )
+    reg.register_model(inactive_model)
+    routing = RoutingPolicy(model_registry=reg)
+
+    # Attempting to route an inactive model directly must raise ModelInactiveError
+    with pytest.raises(ModelInactiveError):
+        routing.resolve_route("decommissioned-model-1")
+
+
+def test_routing_policy_validates_custom_fallback_model():
+    reg = ModelRegistry()
+    routing = RoutingPolicy(model_registry=reg)
+
+    # 1. Custom fallback model that doesn't exist raises RoutingError
+    with pytest.raises(RoutingError) as exc:
+        routing.resolve_route("gpt-5.6-luna", custom_fallback_model="non-existent-model-xyz")
+    assert "not found in registry" in exc.value.detail
+
+    # 2. Inactive custom fallback model raises ModelInactiveError
+    inactive_fb = RegisteredModel(
+        model_id="inactive-fb-model",
+        provider_id="openai",
+        display_name="Inactive Fallback",
+        family="gpt",
+        context_window=10_000,
+        max_output_tokens=1_000,
+        capabilities=ModelCapability(supports_tools=True, supports_vision=True),
+        active=False,
+    )
+    reg.register_model(inactive_fb)
+    with pytest.raises(ModelInactiveError):
+        routing.resolve_route("gpt-5.6-luna", custom_fallback_model="inactive-fb-model")
+
+    # 3. Custom fallback model lacking required capabilities raises ModelCapabilityMismatchError
+    no_vision_fb = RegisteredModel(
+        model_id="no-vision-fb",
+        provider_id="openai",
+        display_name="No Vision Fallback",
+        family="gpt",
+        context_window=10_000,
+        max_output_tokens=1_000,
+        capabilities=ModelCapability(supports_tools=True, supports_vision=False),
+        active=True,
+    )
+    reg.register_model(no_vision_fb)
+    with pytest.raises(ModelCapabilityMismatchError) as exc:
+        routing.resolve_route("gpt-5.6-luna", requires_vision=True, custom_fallback_model="no-vision-fb")
+    assert "vision" in exc.value.detail
+
+    # 4. Valid custom fallback model succeeds
+    decision = routing.resolve_route("gpt-5.6-sol", custom_fallback_model="gpt-5.6-luna")
+    assert decision.fallback_provider == "openai"
+    assert decision.fallback_model == "gpt-5.6-luna"
+
+
+@pytest.mark.asyncio
+async def test_gateway_central_execution_blocks_mock_in_production():
+    db = FakeDBSession()
+    mock_adapter = MockProviderAdapter()
+    provider_reg = ProviderRegistry([mock_adapter])
+    # Force enable in provider_registry to simulate accidental manual configuration
+    provider_reg.set_enabled("mock", True)
+
+    gateway = AIGateway(db=db, provider_registry=provider_reg)
+
+    prod_settings = Settings(app_env="production", allow_mock_provider=True)
+    with patch("app.services.gateway.provider_registry.get_settings", return_value=prod_settings), \
+         patch("app.services.gateway.gateway.is_mock_provider_allowed", return_value=False):
+        agency_id = uuid.uuid4()
+        user = SimpleNamespace(agency_id=agency_id)
+        messages = [GatewayMessage(role="user", content="Test")]
+
+        # Central execution gatekeeper in AIGateway._execute_provider must reject mock in production
+        with pytest.raises(ProviderDisabledError):
+            await gateway.complete(
+                agency_id=agency_id,
+                user=user,
+                model="mock-fast",
+                messages=messages,
+                allow_fallback=False,
+            )
+

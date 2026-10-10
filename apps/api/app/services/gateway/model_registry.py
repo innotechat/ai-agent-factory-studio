@@ -6,7 +6,7 @@ a Phase-3 billing ledger, subscription meter, or credit accounting system.
 """
 
 from typing import Iterable
-from .exceptions import ModelNotFoundError
+from .exceptions import ModelInactiveError, ModelNotFoundError
 from .types import ModelCapability, RegisteredModel
 
 # Canonical model catalog definitions based on backend source of truth
@@ -218,6 +218,12 @@ class ModelRegistry:
         model = self.get_model(model_id)
         if not model:
             raise ModelNotFoundError(model_id)
+        return model
+
+    def require_active_model(self, model_id: str) -> RegisteredModel:
+        model = self.require_model(model_id)
+        if not model.active:
+            raise ModelInactiveError(model_id)
         return model
 
     def list_models(self, provider_id: str | None = None, active_only: bool = True) -> list[RegisteredModel]:

@@ -11,6 +11,7 @@ Security Guarantees:
 """
 
 import os
+import urllib.parse
 import uuid
 from typing import Any
 from sqlalchemy import select
@@ -18,7 +19,12 @@ from sqlalchemy.orm import Session
 
 from...models import ProviderCredential, User
 from...security import decrypt_secret
-from .exceptions import CredentialResolutionError, ProviderDisabledError, TenantSecurityError
+from .exceptions import (
+    CredentialResolutionError,
+    InvalidBaseUrlError,
+    ProviderDisabledError,
+    TenantSecurityError,
+)
 from .provider_registry import is_mock_provider_allowed
 from .types import ResolvedCredential
 
@@ -119,7 +125,15 @@ class CredentialResolver:
         api_key: str,
         override_url: str | None = None,
     ) -> str:
-        """Deterministic resolution of base URL from trusted endpoints only."""
+        """Deterministic resolution of base URL from trusted endpoints only.
+
+        Strictly enforces:
+        - Exact trusted hostname whitelist
+        - https:// scheme (except http:// allowed exclusively for mock-provider.local test environment)
+        - Rejection of userinfo (user:pass@host)
+        - Rejection of unexpected custom ports
+        - Rejection of malformed URLs or unexpected characters
+        """
         if api_key.startswith("sk-or-v1-"):
             return "https://openrouter.ai/api/v1"
 
@@ -132,10 +146,47 @@ class CredentialResolver:
 
         default_url = trusted_defaults.get(provider_id, "https://api.openai.com/v1")
 
-        # Only allow explicit overrides if they match trusted hostnames
-        if override_url:
-            trusted_hosts = ("api.openai.com", "api.anthropic.com", "generativelanguage.googleapis.com", "openrouter.ai", "mock-provider.local")
-            if any(host in override_url for host in trusted_hosts):
-                return override_url
+        if not override_url:
+            return default_url
 
-        return default_url
+        # Strict URL validation on override
+        stripped_url = override_url.strip()
+        try:
+            parsed = urllib.parse.urlsplit(stripped_url)
+        except Exception as exc:
+            raise InvalidBaseUrlError(f"Malformed URL: {exc}") from exc
+
+        # Disallow userinfo (e.g. https://user:pass@attacker.com)
+        if parsed.username or parsed.password:
+            raise InvalidBaseUrlError("URL must not contain user credentials or userInfo")
+
+        # Disallow custom or unexpected ports
+        if parsed.port is not None:
+            raise InvalidBaseUrlError("URL must not specify non-standard or explicit ports")
+
+        # Exact hostname validation
+        hostname = (parsed.hostname or "").lower()
+        if not hostname:
+            raise InvalidBaseUrlError("URL missing valid hostname")
+
+        # Strict scheme check: http only permitted for mock-provider.local; all others must be https
+        if hostname == "mock-provider.local":
+            if parsed.scheme not in ("http", "https"):
+                raise InvalidBaseUrlError("Mock provider requires http or https scheme")
+        else:
+            if parsed.scheme != "https":
+                raise InvalidBaseUrlError(f"Protocol '{parsed.scheme}' not allowed; HTTPS required")
+
+        # Whitelist of exact allowed hostnames
+        trusted_hosts = {
+            "api.openai.com",
+            "api.anthropic.com",
+            "generativelanguage.googleapis.com",
+            "openrouter.ai",
+            "mock-provider.local",
+        }
+
+        if hostname not in trusted_hosts:
+            raise InvalidBaseUrlError(f"Hostname '{hostname}' is not in the trusted host whitelist")
+
+        return stripped_url

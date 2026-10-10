@@ -9,8 +9,14 @@ Determines:
 from dataclasses import dataclass
 from typing import Any
 
-from .exceptions import ModelCapabilityMismatchError, ProviderModelMismatchError, RoutingError
+from .exceptions import (
+    ModelCapabilityMismatchError,
+    ModelInactiveError,
+    ProviderModelMismatchError,
+    RoutingError,
+)
 from .model_registry import ModelRegistry, get_model_registry
+from .provider_registry import ProviderRegistry, get_provider_registry
 from .types import RegisteredModel
 
 
@@ -27,8 +33,13 @@ class RouteDecision:
 class RoutingPolicy:
     """Server-side deterministic routing engine."""
 
-    def __init__(self, model_registry: ModelRegistry | None = None):
+    def __init__(
+        self,
+        model_registry: ModelRegistry | None = None,
+        provider_registry: ProviderRegistry | None = None,
+    ):
         self.model_registry = model_registry or get_model_registry()
+        self.provider_registry = provider_registry or get_provider_registry()
 
     def resolve_route(
         self,
@@ -44,6 +55,10 @@ class RoutingPolicy:
         model_info = self.model_registry.get_model(requested_model)
         if not model_info:
             raise RoutingError(f"Requested model '{requested_model}' not found in registry.")
+
+        # Ensure model is active and verified
+        if not model_info.active:
+            raise ModelInactiveError(model_info.model_id)
 
         # Strict Provider <-> Model Binding validation
         if requested_provider:
@@ -72,15 +87,27 @@ class RoutingPolicy:
         if allow_fallback:
             if custom_fallback_model:
                 fb_info = self.model_registry.get_model(custom_fallback_model)
-                if fb_info:
-                    fallback_provider = fb_info.provider_id
-                    fallback_model = fb_info.model_id
+                if not fb_info:
+                    raise RoutingError(f"Custom fallback model '{custom_fallback_model}' not found in registry.")
+                if not fb_info.active:
+                    raise ModelInactiveError(fb_info.model_id)
+                # Verify provider is registered and enabled
+                if not self.provider_registry.is_registered(fb_info.provider_id) or not self.provider_registry.is_enabled(fb_info.provider_id):
+                    raise RoutingError(f"Provider '{fb_info.provider_id}' for fallback model '{custom_fallback_model}' is not active or registered.")
+                # Verify required capabilities
+                if requires_tools and not fb_info.capabilities.supports_tools:
+                    raise ModelCapabilityMismatchError(custom_fallback_model, "tools")
+                if requires_vision and not fb_info.capabilities.supports_vision:
+                    raise ModelCapabilityMismatchError(custom_fallback_model, "vision")
+                fallback_provider = fb_info.provider_id
+                fallback_model = fb_info.model_id
             else:
                 # Deterministic family fallback
                 fallback_model_info = self._find_deterministic_fallback(model_info, requires_tools, requires_vision)
-                if fallback_model_info:
-                    fallback_provider = fallback_model_info.provider_id
-                    fallback_model = fallback_model_info.model_id
+                if fallback_model_info and fallback_model_info.active:
+                    if self.provider_registry.is_registered(fallback_model_info.provider_id) and self.provider_registry.is_enabled(fallback_model_info.provider_id):
+                        fallback_provider = fallback_model_info.provider_id
+                        fallback_model = fallback_model_info.model_id
 
         return RouteDecision(
             primary_provider=provider,

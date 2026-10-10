@@ -21,9 +21,9 @@ from sqlalchemy.orm import Session
 
 from...models import User
 from .credential_resolver import CredentialResolver
-from .exceptions import GatewayError, ProviderExecutionError
+from .exceptions import GatewayError, ProviderDisabledError, ProviderExecutionError
 from .model_registry import ModelRegistry, get_model_registry
-from .provider_registry import ProviderRegistry, get_provider_registry
+from .provider_registry import ProviderRegistry, get_provider_registry, is_mock_provider_allowed
 from .routing import RoutingPolicy
 from .types import (
     GatewayMessage,
@@ -130,6 +130,10 @@ class AIGateway:
         **kwargs: Any,
     ) -> GatewayResponse:
         """Resolve credentials and invoke adapter safely."""
+        # Central execution gatekeeper for Mock provider
+        if provider_id == "mock" and not is_mock_provider_allowed():
+            raise ProviderDisabledError("mock")
+
         adapter = self.provider_registry.require_adapter(provider_id)
         credential = self.credential_resolver.resolve(
             provider_id=provider_id,

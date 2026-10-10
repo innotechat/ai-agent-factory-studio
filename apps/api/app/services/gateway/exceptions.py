@@ -25,6 +25,11 @@ class ModelNotFoundError(GatewayError):
         super().__init__(status_code=404, detail=f"Model '{model_id}' is not registered in the model catalog.")
 
 
+class ModelInactiveError(GatewayError):
+    def __init__(self, model_id: str):
+        super().__init__(status_code=400, detail=f"Model '{model_id}' is inactive or unverified and cannot be executed.")
+
+
 class ModelCapabilityMismatchError(GatewayError):
     def __init__(self, model_id: str, capability: str):
         super().__init__(status_code=400, detail=f"Model '{model_id}' does not support required capability: {capability}.")
@@ -36,6 +41,11 @@ class ProviderModelMismatchError(GatewayError):
             status_code=400,
             detail=f"Provider mismatch: requested provider '{requested_provider}' cannot serve model '{model_id}' (bound to provider '{actual_provider}').",
         )
+
+
+class InvalidBaseUrlError(GatewayError):
+    def __init__(self, reason: str = "Untrusted or invalid base URL"):
+        super().__init__(status_code=400, detail=f"Invalid base URL: {reason}")
 
 
 class CredentialResolutionError(GatewayError):
